@@ -1,0 +1,193 @@
+---
+title: "Bike rent business analysis"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+# cache results
+knitr::opts_chunk$set(cache=TRUE, echo = TRUE, eval = TRUE, message=FALSE, warning = FALSE, fig.align='center')
+
+```
+
+We will explore sales and its association with different factors.
+
+```{r library}
+## Analysis
+library(dplyr)
+library(ggplot2)
+library(modelr)
+library(readr)
+library(lubridate)
+```
+
+
+
+
+Here is the dataset:
+
+```{r}
+theme_set(theme_minimal())
+day <- read_csv("day.csv")
+select(day, instant:cnt)
+
+
+```
+
+I made a check for missing values and duplicates and deleting it.
+
+```{r}
+day <- read_csv("day.csv")
+# 1. Deleting duplicates (if they are)
+duplicates <- nrow(day[duplicated(day), ]) > 0
+if (duplicates) {
+  day <- day[!duplicated(day), ]
+}
+#2.Deleting missing values
+missing_values <- any(is.na(day))
+if (missing_values) {
+  day <- na.omit(day)
+}
+```
+
+I made data frames for each visualization into different data frames
+
+```{r}
+#Taking weather conditions
+data_wethertocnt <- select(day, temp:windspeed, cnt)
+select(day, temp:windspeed, cnt)
+
+```
+
+```{r}
+#Taking avarage sales depending on the day of a week
+average_sales_by_workingday <- day %>%
+  group_by(workingday) %>%
+  summarise(average_count = mean(cnt))
+
+select(average_sales_by_workingday, workingday:average_count)
+```
+Mutating in celcium degrees. Function to make this
+```{r}
+convert_temp <- function(temp) {
+  return(temp * 30)
+}
+day <- day %>%
+  mutate(temp = convert_temp(temp))
+```
+Now I made  plot for temperature association to sales quantity 
+
+```{r}
+ggplot(data_wethertocnt,
+       aes(x = temp, y = cnt)) +
+  geom_point() +
+  scale_color_brewer(palette = "Dark2") +
+   labs(title = "Scatterplot of Temperature vs Total Count",
+       x = "Temperature",
+       y = "Sales") + 
+  theme_minimal(base_size = 18)
+```
+
+
+Now I made association in which days sales will be bigger in working or on weekends
+
+
+```{r}
+ggplot(data = average_sales_by_workingday,
+       aes(x = factor(workingday), y = average_count, fill = factor(workingday))) +
+  geom_bar(stat = "identity") +
+  ggtitle("Average Bike Rentals for Weekdays vs. Weekend Days") +
+  xlab("Day Type (0 = Weekend, 1 = Weekday)") +
+  ylab("Average Number of Bike Rentals") +
+  scale_fill_manual(values = c("0" = "red", "1" = "blue"), labels = c("Weekend", "Weekday")) +
+  scale_color_brewer(palette = "Dark2")+
+    theme_minimal(base_size = 18)
+```
+
+Association avarage sales to the season.
+
+```{r}
+#Grouping seasons and average sales into one data frame
+average_sales_by_season <- day %>%
+  group_by(season) %>%
+  summarise(average_sales = mean(cnt))
+select(average_sales_by_season, season:average_sales)
+```
+
+Renaming values in seasons names
+
+```{r}
+average_sales_by_season <- average_sales_by_season %>%
+  mutate(season = case_when(
+    season == 1 ~ "Winter",
+    season == 2 ~ "Spring",
+    season == 3 ~ "Summer",
+    season == 4 ~ "Autumn"
+  ))
+
+```
+
+
+Making a plot from this data
+
+```{r}
+#Transfering data in factor format to male our plot working correctly
+average_sales_by_season$season <- as.factor(average_sales_by_season$season)
+
+ggplot(average_sales_by_season, aes(x = season, y = average_sales)) +
+  geom_col(fill = "lightblue") +
+  theme_minimal() +
+  labs(title = "Avarage sales by season",
+       x = "Season",
+       y = "Avarage sales")+
+    theme_minimal(base_size = 18)
+```
+
+Sorting data to make a prediction model. Firstly i need to make season and working day as a additional factor for every row.
+
+```{r}
+#making matrix model 
+season_m <- model.matrix(~ factor(day$season) - 1)
+day_of_week_m <- model.matrix(~ factor(day$weekday) - 1)
+#adding it as factor for each column 
+day <- cbind(day, season_m, day_of_week_m)
+#also making from just data different columns with year/month/day
+day$year <- year(day$dteday)
+day$month <- month(day$dteday)
+day$day <- day(day$dteday)
+head(season_m, n = 5)
+```
+Making a model with factor of temperature ,date , season , weekday, holiday
+```{r}
+model <- lm(cnt ~ temp + day + month + year +
+              factor(season) +
+              factor(weekday) + holiday,
+            data = day)
+model
+```
+Making a prediction and data frame for plot
+
+```{r}
+predicted_sales <- predict(model, day)
+plot_data <- data.frame(actual_sales = day$cnt,
+                        predicted_sales = predicted_sales)
+head(plot_data, n = 10)
+```
+Making a plot with prediction and actual sales
+```{r}
+ggplot(plot_data, aes(x = actual_sales, y = predicted_sales)) +
+  geom_point(color = "blue", alpha = 0.5) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(x = "Actual Sales",
+       y = "Predicted Sales",
+       title = "Actual vs. Predicted Sales") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+
+
+
+
+
